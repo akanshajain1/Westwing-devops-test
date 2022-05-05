@@ -1,0 +1,61 @@
+version: '3'
+services:
+  nginx:
+   container_name: westwing-nginx
+   image: nginx:1.13
+   restart: always
+   ports:
+   - 80:80
+   - 443:443
+   volumes:
+   - ./nginx/conf.d:/etc/nginx/conf.d
+   depends_on:
+   - westwing-app
+ 
+ 
+  pmm-server:
+    image: ${PMM_SERVER_IMAGE:-perconalab/pmm-server:dev-latest}
+    container_name: pmm-agent_pmm-server
+    ports:
+      - "127.0.0.1:80:80"
+      - "127.0.0.1:443:443"
+    environment:
+      - PMM_DEBUG=1
+      - PERCONA_TEST_CHECKS_INTERVAL=10s
+      - PERCONA_TEST_CHECKS_FILE=/srv/checks/custom-checks.yml
+     
+    volumes:
+      - ./testdata/checks:/srv/checks
+
+  
+  mysql:
+    image: ${MYSQL_IMAGE:-percona:8.0}
+    container_name: pmm-agent_mysql
+    command: >
+      --sql-mode="ANSI_QUOTES"
+      --performance-schema --innodb_monitor_enable=all
+      --slow_query_log --slow_query_log_file=/mysql/slowlogs/slow.log --long_query_time=0
+    ports:
+      - "127.0.0.1:3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=root-password
+      - MYSQL_USER=pmm-agent
+      - MYSQL_PASSWORD=pmm-agent-password
+      - UMASK=0777  
+      - MYSQL_DATABASE=test
+    volumes:
+      - test_db_mysql:/docker-entrypoint-initdb.d/:ro
+      - ./testdata/mysql:/mysql
+  
+  westwing-app:
+    restart: always
+    build: ./westwing-app
+    working_dir: /westwing-app
+    volumes:
+      - ./app:/westwing-app
+      - ~/.m2:/root/.m2
+    expose:
+      - "8080"
+    command: mvn clean spring-boot:run
+    depends_on:
+      - mysql
